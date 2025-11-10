@@ -1,0 +1,181 @@
+#!/bin/bash
+# Usage: sbatch slurm_sugar_nema_trinity.sh
+#SBATCH --time=150:00:00
+#SBATCH --mem=356gb
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --account=OD-233905
+#SBATCH --job-name="2-pe-pipe"
+
+
+## FOR USE ON CSIRO PETRICHOR HPC ##
+## written by A.F.Porter
+
+## FOR PAIRED END READS ##
+
+## FOUR THINGS TO CHECK BEFORE RUNNING##
+## 1. How many libraries are being assembled via trinity? Change array range in SBATCH in trinity_array.sh
+## 2. Set your sample name, raw and base directories in USER INPUT here and in trinity_array.sh
+## 3. Define whether your samples have been gzipped by editing .fastq.gz --> .fastq in ##FILES## (and also can remove unzipping step if already fastq)
+## 4. Define whether how many "_" delimiters are in your file name and change in line 44
+
+#load modules
+module load perl
+module load bowtie/2.5.1
+module load trimmomatic/0.39
+module load fastqc/0.12.1
+module load megahit/1.2.9
+module load trinity/2.15.1
+module load blast+/2.14.0
+module load jemalloc
+module load diamond/2.0.15
+module load ccmetagen
+module load kma
+
+
+##USER INPUT##
+#raw data
+dir=""
+#home directory
+base=""
+
+#library name
+sample="AGRF_"
+
+#shortcut to raw reads
+raw="$dir"/"$sample"
+
+#nr databases - need to be updated at least once a year
+diamond_db="/diamond_db/nr_250424_v218.dmnd"
+
+##FILES##
+# array to store filenames
+files=()
+
+# collecting each file name
+## Change .fastq to .fastq.qz if gzipped!##
+
+for file in "$raw"/*.fastq; do
+    # Check if the file exists
+    if [ -f "$file" ]; then
+	    # Extract the string from the file name
+	    #filename=$(basename "$file" | rev | cut -d'_' -f2- | rev)
+	    # Add the extracted filename to the array
+	    files+=("$filename")
+    else
+        echo "File not found: $file"
+    fi
+done
+
+
+# Print all filenames in the array for debugging
+echo "Extracted filenames:"
+for name in "${files[@]}"; do
+    echo "$name"
+done
+
+for file in "${files[@]}"; do
+##DIRECTORIES##
+	echo "$base"
+	echo "$sample"
+
+	qc="$base/$sample/${file}/qc"
+   	trim="$base/$sample/$file/trimmed"
+	mega="$base/$sample/$file/assembled-megahit"
+	trinity="$base/$sample/$file/assembled-trinity"
+	blastn="$base/$sample/$file/blastn"
+	blastx="$base/$sample/$file/blastx"
+
+    # Create directories if they don't exist
+    mkdir -p "$qc"
+    mkdir -p "$trim"
+    mkdir -p "$mega"
+    mkdir -p "$trinity"
+    mkdir -p "$blastn"
+    mkdir -p "$blastx"
+done
+##FOR PAIRED-END##
+
+##DATA CLEAN##
+##UNZIP AND QC##
+for file in "${files[@]}"; do
+      # gunzip $raw/${file}_R1.fastq.gz
+#       gunzip $raw/${file}_R2.fastq.gz
+
+testing quality of reads
+        fastqc -o $qc $raw/${file}_R1.fastq
+        fastqc -o $qc $raw/${file}_R2.fastq
+
+
+##TRIMMING##
+##Trimming using adapters for small RNA##
+
+for file in "${files[@]}"; do
+        cd $base
+        trimmomatic PE $raw/${file}_R1.fastq $raw/${file}_R2.fastq $trim/${file}_R1.fq $trim/${file}_R1unp.fq $trim/${file}_R2.fq $trim/${file}_R2unp.fq ILLUMINACLIP:TruSeqSmRNA.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:25
+done
+
+##QC for trimmed reads##
+
+for file in "${files[@]}"; do
+    mkdir $qc/trim_${file}/
+    out_qc=$qc/trim_${file}
+    fastqc -o $out_qc $trim/${file}_R1.fq
+    fastqc -o $out_qc $trim/${file}_R2.fq
+done
+
+##
+
+##ANALYSIS##
+
+##CCMETAGEN##
+
+ccmetafiles="/scratch3/por094/ccmetagen/"
+ccDB="/datasets/work/ncmi-virusbiosurveil-stores/work/ccmetagen/compress_ncbi_nt"
+ccOUT="/datasets/work/ncmi-virusbiosurveil-stores/work/pilot/ccmeta"
+mkdir -p "$ccOUT"
+
+for file in "${files[@]}"; do
+            cd $ccmetafiles
+            kma -ipe $raw/${file}_R1.fastq $raw/${file}_R2.fastq -o $ccmetafiles/${file}_ntbase_out_kma -t_db $ccDB/"ncbi_nt" -t $SLURM_CPUS_PER_TASK -1t1 -mem_mode -and -apm f -ef -tmp $JOBDIR/
+done
+
+##
+for file in "${files[@]}"; do
+        cd $ccmetafiles
+        CCMetagen.py -i ${file}_ntbase_out_kma.res -o $ccOUT/${file}_ntbase_results
+done
+
+##
+##ASSEMBLY##
+
+##TRINITY ARRAY##
+/bin/bash $base/trinity_array.sh
+##
+
+##MEGAHIT & BLASTX ##
+
+for file in "${files[@]}";
+do
+        mkdir -p $mega/${file}
+        out_mega=$mega/${file}/contigs
+       megahit -1 $trim/${file}_R1.fq -2 $trim/${file}_R2.fq -t $SLURM_CPUS_PER_TASK -o $out_mega --out-prefix ${file} --continue
+
+        #megahit nr search
+        out_mega_nr=$blastx/mega_nr_${file}/
+	    mkdir $out_mega_nr
+	    diamond blastx --threads 32 --db $diamond_db --query $base/$sample/${file}/assembled-megahit/${file}/contigs/"${file}.contigs.fa" --out $out_mega_nr/${file}.nr.txt --max-target-seqs 5 --ultra-sensitive --outfmt 6 qseqid qlen sseqid stitle pident length evalue staxids sscinames sphylums --taxonmap $base/diamond_db/prot.accession2taxid.FULL.gz
+	    #viral and bacterial hits
+        mkdir $blastx/hits
+        outdir=$blastx/hits
+        cat $blastx/mega_nr_${file}/${file}.nr.txt | grep -A0 -E "virus|viral" > $outdir/${file}_mega_nr-virus.txt
+        cat $blastx/mega_nr_${file}/${file}.nr.txt | grep -A0 -E "bacteria|16S" > $outdir/${file}_mega_nr-bacteria.txt
+        out_trinity_nr="$blastx/trinity_nr_${file}"
+        #trinity nr search
+        #mkdir -p "$out_trinity_nr"
+        #diamond blastx --threads 32 --db $diamond_db --query $base/$sample/${file}/assembled-trinity/"trinity_${file}.Trinity.fasta" --out $out_trinity_nr/"${file}.nr.txt" --max-target-seqs 5 --ultra-sensitive --outfmt 6 qseqid qlen sseqid stitle pident length evalue staxids sscinames sphylums --taxonmap $base/diamond_db/prot.accession2taxid.FULL.gz
+        #viral and bac hits#
+        #outdir="$blastx/hits"
+        #cat $out_trinity_nr/"${file}.nr.txt" | grep -A0 -E "virus|viral" > $outdir/"${file}_trinity_nr-virus.txt"
+        #cat $out_trinity_nr/"${file}.nr.txt" |grep -A0 -E "bacteria|16S" > $outdir/"${file}_mega_nr-bacteria.txt"
+done
