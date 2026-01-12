@@ -1,0 +1,57 @@
+#set directories
+READ_DIR=""
+ALIGN_DIR=""
+DB_DIR=""
+LOG_DIR="${ALIGN_DIR}/log"
+
+#make log directory
+mkdir -p $LOG_DIR
+
+#load module kalign
+module load kit4b/200218
+
+for i in $DB_DIR/*.fasta; do
+        ngskit4b index -i $i -o $i.masked -r rotavirus;
+done
+
+# Find the first R1 file in the read directory (you may change the matching pattern)
+READS1=$(find ${READ_DIR} -name "M05058*_R1.fastq" | head -n 1)
+
+# Check if $READS1 is found correctly
+if [[ -z "$READS1" ]]; then
+    echo "No files found matching *_R1.fastq in ${READ_DIR}"
+    exit 1
+fi
+
+echo "Found file: $READS1"
+
+# Extract the basename from the R1 file path
+if [[ $READS1 =~ .*/([^/]+)_R1\.fastq$ ]]; then
+    BASENAME=${BASH_REMATCH[1]}
+    echo "BASH_REMATCH[1]: ${BASH_REMATCH[1]}"
+else
+    echo "Unable to parse string $READS1"
+    exit 1
+fi
+
+echo "basename: $BASENAME"
+
+DB=()
+
+for file in $DB_DIR/*.fasta.masked; do
+        filename=$(basename "$file")
+        DB+=("$filename")
+done
+
+COND="c25_l25_d100_U4"
+
+for file in "${DB[@]}"; do
+# Run the alignment command
+        /bin/date
+        CMD="ngskit4b kalign -c25 -l25 -d100 -U4 -i ${READ_DIR}/${BASENAME}_R1.fastq -u ${READ_DIR}/${BASENAME}_R2.fastq -I ${DB_DIR}/${file} -o ${ALIGN_DIR}/${BASENAME}_${file}_${COND}.sam -T ${SLURM_CPUS_PER_TASK} -F ${LOG_DIR}/${BASENAME}_${file}_${COND}.log"
+        echo "Executing command [$CMD]..."
+        eval "$CMD"
+        echo '  ...completed'
+        /bin/date
+done
+
