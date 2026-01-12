@@ -24,4 +24,4 @@ file="M24834"
 STAR --runThreadN 4 --genomeDir $DB --readFilesIn $READ_DIR/"$file"_R1.fastq $READ_DIR/"$file"_R2.fastq --outFileNamePrefix STAR_output/ --outSAMstrandField intronMotif
 
 # Run the mapping command # Annotated genome
-STAR --runThreadN 4 --genomeDir $DB --readFilesIn $READ_DIR/"$file"_R1.fastq $READ_DIR/"$file"_R2.fastq --outFileNamePrefix STAR_output/ --quantMode TranscriptomeSAM --outSAMstrandField intronMotif -- --sjdbGTFfile $BASE/
+STAR --runThreadN 4 --genomeDir $DB --readFilesIn $READ_DIR/"$file"_R1.fastq $READ_DIR/"$file"_R2.fastq --outFileNamePrefix STAR_output/ --quantMode TranscriptomeSAM --outSAMstrandField intronMotif --sjdbGTFfile $BASE/
