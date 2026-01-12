@@ -1,0 +1,26 @@
+#load STAR
+module load star
+
+# Error and output logs
+#SBATCH --error=/%A.err
+#SBATCH --out=/%A.out
+
+# Directories
+READ_DIR=""
+#DB=""
+#OUT=""
+#LOG_DIR="${ALIGN_DIR}/log"
+
+
+mkdir $OUT
+
+cd $OUT
+
+file="M24834"
+
+
+# Run the mapping command # Not annotated genome
+STAR --runThreadN 4 --genomeDir $DB --readFilesIn $READ_DIR/"$file"_R1.fastq $READ_DIR/"$file"_R2.fastq --outFileNamePrefix STAR_output/ --outSAMstrandField intronMotif
+
+# Run the mapping command # Not annotated genome
+STAR --runThreadN 4 --genomeDir $DB --readFilesIn $READ_DIR/"$file"_R1.fastq $READ_DIR/"$file"_R2.fastq --outFileNamePrefix STAR_output/ --quantMode TranscriptomeSAM --outSAMstrandField intronMotif --
