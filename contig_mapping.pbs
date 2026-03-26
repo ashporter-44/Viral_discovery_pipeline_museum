@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --time=15:00:00
+#SBATCH --mem=150gb
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=32
+#SBATCH --job-name="contig_mapping"
+
+module load bowtie/2.5.4
+module load samtools
+
+base=""
+home=""
+trim=""
+
+cd $base
+
+files=(
+##list file names
+)
+
+OutStem=gene
+
+bowtie2-build gene.fa gene
+
+for file in "${files[@]}";
+        do
+        ## create a list of all trim files for that sample (i.e. trim R1, R2, orphans R1 and R2 all for both libraries for this sample)
+        list=`ls -m $trim/"$file"* | sed 's|[[:blank:]]||g' | sed -z "s/\n//g"`
+        echo "$list"
+        ## Bowtie mapping to reference
+        bowtie2 --very-sensitive-local --threads 20 -x gene -U "${list}" -S "$file"_"$OutStem".sam --al-gz "$file"_"$OutStem"_aligned-reads.fq.gz
+        ## Use sam tools to create sorted bam file and a mapping summary (and delete unneeded big files)
+        samtools view -bSF4 "$file"_"$OutStem".sam > "$file"_"$OutStem".bam; samtools sort -@ 20 "$file"_"$OutStem".bam > "$file"_"$OutStem".sorted.bam
+        samtools index "$file"_"$OutStem".sorted.bam; samtools stats "$file"_"$OutStem".sorted.bam > "$file"_"$OutStem"_mapping.txt
+        rm "$file"_"$OutStem".sam; rm "$file"_"$OutStem".bam
+done
